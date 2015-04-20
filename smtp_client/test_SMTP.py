@@ -1,5 +1,8 @@
 import unittest
 import SMTP_client
+import mock
+import _io
+import ssl
 
 __author__ = 'Ksenia'
 
@@ -21,6 +24,12 @@ class TestSMTP(unittest.TestCase):
 
     def setUp(self):
         self.smtp = SMTP_client.SMTP(HOST, PORT)
+
+    def test_mailbox_unavailable(self):
+        with mock.patch('SMTP_client.SMTP.receive_code') as mock_sock:
+            mock_sock.return_value = 550
+            with self.assertRaises(SMTP_client.SMTP_Error):
+                self.smtp.ehlo(DOMAIN)
 
     def test_smtp_successful(self):
         incomplete_login = "knazarova9"
@@ -69,6 +78,14 @@ class TestSMTP(unittest.TestCase):
         self.assertIn(self.send_to_each_one(email_cc.split(",")), [250, 251], "Fail RCPT cmd")
         self.assertEqual(self.smtp.data(email_from, email_to, subject, email_cc, email_bcc, data), 250, "Fail DATA cmd")
 
+    def test_fail_with_unexpected_error(self):
+        self.smtp.ehlo(DOMAIN)
+        with mock.patch('SMTP_client.SMTP.receive_code') as mock_code:
+            mock_code.return_value = 711
+            with self.assertRaises(SMTP_client.SMTP_Error):
+                self.smtp.auth(login, password)
+            self.smtp = SMTP_client.SMTP(HOST, PORT)
+
     def tearDown(self):
         self.smtp.quit()
 
@@ -105,10 +122,6 @@ class TestSMTPSendMsg(unittest.TestCase):
         self.send_to_each_one(email_to.split(","))
         self.assertEqual(self.smtp.data(email_from, email_to, subject, data=data), 250, "Fail DATA cmd")
 
-    def test_create_msg_successful(self):
-        self.send_to_each_one(email_to.split(","))
-        self.assertEqual(self.smtp.data(email_from, email_to, subject, data=data), 250, "Fail DATA cmd")
-
     def tearDown(self):
         self.smtp.quit()
 
@@ -120,4 +133,39 @@ class TestSMTPSendMsg(unittest.TestCase):
         return resp_code
 
 
+class TestSMTPConnection(unittest.TestCase):
 
+    def test_connection_fail_with_OSError(self):
+        with mock.patch('ssl.SSLSocket.connect') as mock_sock:
+            mock_sock.side_effect = OSError
+            with self.assertRaises(SMTP_client.SMTP_Error):
+                self.smtp = SMTP_client.SMTP(HOST, PORT)
+
+    def test_connection_fail_with_WinError(self):
+        with mock.patch('ssl.SSLSocket.connect') as mock_sock:
+            mock_sock.side_effect = (TimeoutError, WindowsError)
+            with self.assertRaises(SMTP_client.SMTP_Error):
+                self.smtp = SMTP_client.SMTP(HOST, PORT)
+
+    def test_connection_fail_with_wrong_host_or_port(self):
+        with self.assertRaises(TypeError):
+            self.smtp = SMTP_client.SMTP(mock.ANY, PORT)
+        with self.assertRaises(TypeError):
+            self.smtp = SMTP_client.SMTP(HOST, mock.ANY)
+        with self.assertRaises(SMTP_client.SMTP_Error):
+            self.smtp = SMTP_client.SMTP(str(mock.ANY), PORT)
+
+    def test_connection_fail_after_success(self):
+        self.smtp = SMTP_client.SMTP(HOST, PORT)
+        with mock.patch('ssl.SSLSocket.recv') as mock_sock:
+            mock_sock.side_effect = TimeoutError
+            with self.assertRaises(SMTP_client.SMTP_Error):
+                self.smtp.ehlo(DOMAIN)
+        with mock.patch('ssl.SSLSocket.recv') as mock_sock:
+            mock_sock.side_effect = ValueError
+            with self.assertRaises(SMTP_client.SMTP_Error):
+                self.smtp.ehlo(DOMAIN)
+
+
+if __name__ == '__main__':
+    unittest.main()

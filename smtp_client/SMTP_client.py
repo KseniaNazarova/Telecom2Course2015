@@ -41,14 +41,13 @@ errno = {220: "SMTP ready",
 normal_code = [220, 221, 235, 250, 251, 450, 500, 501, 502, 503, 504, 535, 551, 552, 553]
 bad_code = [421, 451, 452, 454, 455, 534, 550, 554, 555, 10060, 11001]
 
-class SMTP_Error:
+
+class SMTP_Error(BaseException):
 
     def __init__(self, code=0):
         print("%d: %s" % (code, errno[code]))
-        exit(-1)
 
-
-class SMTP:
+class SMTP():
     __cmd_ehlo = "EHLO"
     __cmd_auth = "AUTH"
     __cmd_mail = "MAIL"
@@ -69,14 +68,8 @@ class SMTP:
             resp_code = int(self.__ssl_sock.recv(MAXLINE).decode('ascii')[:CODESIZE])
             self.__print_response(resp_code)
             return resp_code
-
-        except (TimeoutError, WindowsError):
-            self.__print_response(10060)
         except OSError:
-            self.__print_response(11001)
-        if self.__sock is not None:
-            self.__sock.close()
-        exit(1)
+            raise SMTP_Error(10060)
 
     def __send_cmd(self, cmd, args=""):
         if args == "":
@@ -86,14 +79,17 @@ class SMTP:
         print(str[:-len(CRLF)])
         try:
             self.__ssl_sock.send(str.encode('ascii'))
-            return int(self.__ssl_sock.recv(MAXLINE).decode('ascii')[:CODESIZE])
-        except (TimeoutError, WindowsError):
-            self.__print_response(10060)
-            self.__disconnect_from_server()
-            exit(1)
+            #return int(self.__ssl_sock.recv(MAXLINE).decode('ascii')[:CODESIZE])
+            return self.receive_code()
+        except OSError:
+            raise SMTP_Error(10060)
         ### TODO
-        except ValueError:
-            raise SMTP_Error(1)
+        ### ADD IF EMPTY CMD
+        except:
+            raise SMTP_Error(unexp_code)
+
+    def receive_code(self):
+        return int(self.__ssl_sock.recv(MAXLINE).decode('ascii')[:CODESIZE])
 
     def ehlo(self, domain):
         resp_code = self.__send_cmd(self.__cmd_ehlo, domain)
@@ -146,9 +142,6 @@ class SMTP:
         else:
             raise SMTP_Error(unexp_code)
 
-    def reset(self):
-        self.__disconnect_from_server()
-
 class Message():
 
     def __init__(self):
@@ -174,4 +167,3 @@ class Message():
         print(body)
         self._body = "%s%s." % (body, CRLF)
         return self._body
-
